@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nf-diagnose-mcp"
+version = "0.1.0"
+description = "Read-only MCP server that diagnoses failed Nextflow / nf-core runs on a workstation or HPC cluster"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+keywords = ["nextflow", "nf-core", "mcp", "bioinformatics", "slurm", "hpc"]
+dependencies = ["mcp>=1.2,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+nf-diagnose-mcp = "nf_diagnose_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nf_diagnose_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
