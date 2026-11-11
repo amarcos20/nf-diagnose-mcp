@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nf-diagnose": {
+      "command": ".venv/bin/nf-diagnose-mcp",
+      "args": ["."]
+    }
+  }
+}
