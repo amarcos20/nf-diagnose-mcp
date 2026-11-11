@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+dist/
+build/
+
+# Fixtures are real Nextflow launch directories. Keep only the run metadata a
+# diagnosis needs; never commit data files, tool outputs or container images.
+fixtures/*/.nextflow/*
+!fixtures/*/.nextflow/history
+
+fixtures/*/work/**
+!fixtures/*/work/**/
+!fixtures/*/work/**/.command.*
+!fixtures/*/work/**/.exitcode
+fixtures/*/work/singularity/
+
+fixtures/*/results/**
+!fixtures/*/results/**/
+!fixtures/*/results/pipeline_info/execution_trace_*.txt
+!fixtures/*/results/pipeline_info/execution_report_*.html
+!fixtures/*/results/pipeline_info/params_*.json
+!fixtures/*/results/pipeline_info/*_versions.yml
+!fixtures/*/results/multiqc/multiqc_data/*.txt
+!fixtures/*/results/multiqc/multiqc_data/multiqc.log
+fixtures/*/results/multiqc/multiqc_data/llms-full.txt
