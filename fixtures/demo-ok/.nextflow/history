@@ -1,0 +1,1 @@
+2026-11-11 17:26:54	57s	pedantic_rubens	OK	671a0726cb489b22636d90b7c7352baed473790d	6a13b021-8fef-42bd-b68e-81b3ea50c9d8	nextflow run nf-core/demo -profile test,apptainer --outdir results

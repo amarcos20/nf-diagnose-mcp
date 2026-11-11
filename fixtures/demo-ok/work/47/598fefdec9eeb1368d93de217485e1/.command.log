@@ -1,0 +1,15 @@
+INFO:    gocryptfs not found, will not be able to use gocryptfs
+
+/// MultiQC 🔍 v1.34
+
+            config | Loading config settings from: 1/multiqc_config.yml
+     version_check | MultiQC Version v1.35 now available!
+       file_search | Search path: /home/user/bioinf/nf-diagnose-mcp/fixtures/demo-ok/work/47/598fefdec9eeb1368d93de217485e1
+    custom_content | nf-core-demo-methods-description: Found 1 sample (html)
+    custom_content | nf-core-demo-summary: Found 1 sample (html)
+            fastqc | Found 6 reports
+     write_results | Rendering plots. Export plots to formats png, svg, pdf is requested, so it might take a while. To disable plot export, set `export_plots: false` in config, or remove the `--export-plots` command line flag
+     write_results | Data        : multiqc_data
+     write_results | Report      : multiqc_report.html
+     write_results | Plots       : multiqc_plots
+           multiqc | MultiQC complete
