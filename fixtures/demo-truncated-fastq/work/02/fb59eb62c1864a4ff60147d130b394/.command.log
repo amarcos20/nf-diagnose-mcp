@@ -1,0 +1,10 @@
+INFO:    gocryptfs not found, will not be able to use gocryptfs
+application/gzip
+application/gzip
+Failed to process file SAMPLE1_PE_1.gz
+uk.ac.babraham.FastQC.Sequence.SequenceFormatException: Ran out of data in the middle of a fastq entry.  Your file is probably truncated
+	at uk.ac.babraham.FastQC.Sequence.FastQFile.readNext(FastQFile.java:187)
+	at uk.ac.babraham.FastQC.Sequence.FastQFile.next(FastQFile.java:129)
+	at uk.ac.babraham.FastQC.Analysis.AnalysisRunner.run(AnalysisRunner.java:77)
+	at java.base/java.lang.Thread.run(Thread.java:833)
+Fontconfig error: No writable cache directories

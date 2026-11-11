@@ -1,0 +1,1 @@
+2026-11-11 17:42:09	18.7s	pensive_mirzakhani	ERR	671a0726cb489b22636d90b7c7352baed473790d	55ccf7f0-4c8c-4dff-9455-c0a88ae812fa	nextflow run nf-core/demo -profile test,apptainer --input samplesheet.csv --outdir results -ansi-log false

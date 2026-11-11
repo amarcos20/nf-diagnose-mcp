@@ -1,0 +1,1 @@
+2026-11-11 17:36:38	-	nostalgic_leakey	-	671a0726cb489b22636d90b7c7352baed473790d	862e79fa-6f02-4cc8-abaa-b21c621932b2	nextflow run nf-core/demo -profile test,apptainer --input samplesheet.csv --outdir results -ansi-log false

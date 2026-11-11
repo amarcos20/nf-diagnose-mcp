@@ -1,0 +1,1 @@
+2026-11-11 17:38:22	9.2s	magical_ampere	ERR	671a0726cb489b22636d90b7c7352baed473790d	2b268f98-5146-4267-bedd-f3d5ef39b640	nextflow run nf-core/demo -profile test,apptainer -c low-memory.config --outdir results -ansi-log false

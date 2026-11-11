@@ -27,3 +27,6 @@ fixtures/*/results/**
 !fixtures/*/results/multiqc/multiqc_data/*.txt
 !fixtures/*/results/multiqc/multiqc_data/multiqc.log
 fixtures/*/results/multiqc/multiqc_data/llms-full.txt
+
+# Fixture input data (see each EXPECTED.md for how to recreate it)
+fixtures/*/data/

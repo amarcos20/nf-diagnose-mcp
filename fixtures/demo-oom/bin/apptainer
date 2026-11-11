@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Nextflow launches Apptainer through `env -`, which drops the D-Bus session
+# variables that rootless Apptainer needs to create a cgroup (see
+# ../../demo-container-error for what happens without them). Put them back.
+uid=$(id -u)
+exec env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" XDG_RUNTIME_DIR="/run/user/${uid}" /usr/bin/apptainer "$@"

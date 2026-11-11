@@ -1,0 +1,2 @@
+INFO:    gocryptfs not found, will not be able to use gocryptfs
+/home/user/bioinf/nf-diagnose-mcp/fixtures/demo-oom/work/a8/7e695beb6fa558c27ad8116ec0b755/.command.sh: line 10:    49 Killed                  fastqc --quiet --threads 2 --memory 2048 SAMPLE2_PE_1.gz SAMPLE2_PE_2.gz

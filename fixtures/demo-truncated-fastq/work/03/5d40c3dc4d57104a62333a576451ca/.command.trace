@@ -1,0 +1,17 @@
+nextflow.trace/v2
+realtime=4000
+%cpu=1762
+cpu_model=AMD Ryzen 7 7730U with Radeon Graphics
+rchar=18352032
+wchar=4845859
+syscr=19570
+syscw=15138
+read_bytes=0
+write_bytes=2568192
+%mem=55
+vmem=7673760
+rss=747548
+peak_vmem=7673764
+peak_rss=747548
+vol_ctxt=604
+inv_ctxt=5
