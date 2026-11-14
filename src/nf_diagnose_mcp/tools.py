@@ -149,6 +149,32 @@ def _signature(sandbox: Sandbox, run: Run, task: Task) -> str | None:
     return re.sub(r"\d+", "N", text)
 
 
+def _not_run_for(tasks: list[Task], process: str | None) -> str | None:
+    """Tags (usually samples) other processes ran for but this process did not.
+
+    Only processes whose tags include all of this one's are compared, so a
+    process tagged by something else (a chromosome, a chunk) is ignored.
+    """
+    by_process: dict[str | None, set[str]] = {}
+    for t in tasks:
+        if t.tag:
+            by_process.setdefault(t.process, set()).add(t.tag)
+    own = by_process.get(process)
+    if not own:
+        return None
+    missing: dict[str, str | None] = {}
+    for other, tags in by_process.items():
+        if other != process and tags > own:
+            for tag in sorted(tags - own):
+                missing.setdefault(tag, other)
+    if not missing:
+        return None
+    example = next(iter(missing.values()))
+    return (clip_line(", ".join(missing), 300)
+            + f" — other processes have tasks with these tags (e.g. {example}) and this one has none: never "
+              "submitted because the run was stopping, or not applicable to them (heuristic: compares task tags)")
+
+
 def _task_detail(sandbox: Sandbox, run: Run, t: Task, tail_lines: int, scheduler: bool) -> dict:
     detail: dict = {
         "task": t.name,
@@ -236,6 +262,7 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
             "exit": code if code is not None else "-",
             "failed_attempts": len(members),
             "samples": clip_line(", ".join(dict.fromkeys(t.tag or t.hash or "?" for t in members)), 400),
+            "not_run_for": _not_run_for(tasks, process),
         }
         details = []
         if budget > 0:
@@ -266,6 +293,13 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
         block["details"] = details
         blocks.append(block)
     out["failed_groups"] = blocks
+
+    pending = log.stats.get("pendingCount", 0) if log is not None else 0
+    if pending:
+        out["never_submitted"] = (
+            f"{pending} task(s) were still pending when the run stopped (pendingCount in the WorkflowStats line "
+            "of .nextflow.log). They were never submitted, so they have no trace row and no work directory, and "
+            "their names are not recorded: compare the samples above with the samplesheet to see which are missing")
 
     aborted = [t for t in tasks if t.status == "ABORTED"]
     if aborted:

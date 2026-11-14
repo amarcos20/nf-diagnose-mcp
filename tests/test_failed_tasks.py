@@ -167,3 +167,39 @@ def test_clean_environment_note():
     note = clean_environment_note([], ["XDG_RUNTIME_DIR not set", "DBUS_SESSION_BUS_ADDRESS is not set"])
     assert "only no variables are passed on" in note
     assert "XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS (named in the output above) are not among them" in note
+
+
+def test_container_error_reports_tasks_that_were_never_submitted(sb):
+    # SAMPLE1_PE appears nowhere in this run: the only trace of it is the pending count in the log
+    out = tools.failed_tasks(sb, "demo-container-error")
+    assert "never_submitted: 2 task(s) were still pending when the run stopped" in out
+    assert "their names are not recorded" in out
+    for run in ("demo-oom", "demo-truncated-fastq", "demo-ok", "demo-bad-samplesheet"):
+        assert "never_submitted" not in tools.failed_tasks(sb, run)
+    # here no other process ran for more samples than FASTQC did, so there is nothing to name
+    assert "not_run_for" not in out
+
+
+def test_failed_process_that_ran_for_fewer_samples_names_the_missing_ones(copy_fixture):
+    # MODIFIED copy of a real run: the FASTQC (SAMPLE3_SE) row is removed from the trace
+    sandbox, run = copy_fixture("demo-truncated-fastq")
+    next(run.glob("results/pipeline_info/execution_report_*.html")).unlink()
+    trace = next(run.glob("results/pipeline_info/execution_trace_*.txt"))
+    trace.write_text("".join(l for l in trace.read_text().splitlines(keepends=True)
+                             if "FASTQC (SAMPLE3_SE)" not in l))
+    out = tools.failed_tasks(sandbox, str(run))
+    assert "not_run_for: SAMPLE3_SE — other processes have tasks with these tags (e.g. NFCORE_DEMO:DEMO:SEQTK_TRIM)" in out
+    assert "heuristic" in out
+
+
+def test_not_run_for_ignores_processes_tagged_differently():
+    from nf_diagnose_mcp.tasks import Task
+    from nf_diagnose_mcp.tools import _not_run_for
+
+    def task(i, process, tag):
+        return Task(task_id=str(i), name=f"{process} ({tag})", process=process, tag=tag)
+    tasks = [task(1, "ALIGN", "s1"), task(2, "ALIGN", "s2"), task(3, "CALL", "chr1"), task(4, "CALL", "chr2"),
+             task(5, "QC", "s1"), task(6, "QC", "s2"), task(7, "QC", "s3"), Task(task_id="8", name="MULTIQC", process="MULTIQC")]
+    assert _not_run_for(tasks, "ALIGN").startswith("s3 — ")
+    assert _not_run_for(tasks, "CALL") is None      # no process has all of CALL's tags
+    assert _not_run_for(tasks, "QC") is None and _not_run_for(tasks, "MULTIQC") is None
