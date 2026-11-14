@@ -12,8 +12,8 @@ the limits that were actually enforced, and the relevant end of the task's
 output.
 
 Status: v0.1.0. Developed and tested against real `nf-core/demo` runs on a
-workstation (local executor, Apptainer). See [Limitations](#limitations) for
-what has not been tested, SLURM in particular.
+workstation (local executor, Apptainer) and on one SLURM cluster
+(Singularity). See [Limitations](#limitations) for what has not been tested.
 
 ## Contents
 
@@ -32,7 +32,7 @@ Requires Python 3.10 or newer. The package is not published on PyPI; install it 
 clone:
 
 ```bash
-git clone <this repository>
+git clone https://github.com/amarcos20/nf-diagnose-mcp.git
 cd nf-diagnose-mcp
 python -m venv .venv
 .venv/bin/pip install -e .
@@ -114,6 +114,9 @@ task shown in each group:
 
 - exit status with a one-line meaning, attempt number and Nextflow's error
   action;
+- Nextflow's own error for the task, when it says more than the exit status
+  (for example a task it refused to launch because it asks for more memory
+  than the machine has: such a task has no `.command.err` at all);
 - requested CPUs, memory and time against what was used;
 - the command from `.command.sh`, without the nf-core boilerplate;
 - from `.command.run`, what was actually submitted: scheduler directives
@@ -222,15 +225,21 @@ Outputs are truncated on purpose, and every truncation is marked in the text.
 
 ## Limitations
 
-- **SLURM and other schedulers are not validated on real runs.** The code
-  reads scheduler directives, job ids and scheduler messages in
-  `.command.log`, and `explain_exit_code` has SLURM-specific advice, but the
-  only tests are synthetic. Every real run in this repository used the local
-  executor.
-- **Tested with one pipeline.** All real runs are `nf-core/demo` 1.2.0 with
-  Nextflow 26.10.5 and Apptainer 1.4.5. Pipelines that are not nf-core may
-  not write `pipeline_info/`; the tools then fall back to the log, which has
-  no resource usage.
+- **SLURM is validated on one cluster and two kinds of failure.** The real
+  SLURM runs in this repository are an out-of-memory kill and a time-limit
+  cancellation on Slurm 23.11 with the cgroup plugins. Node failures,
+  preemption, job arrays and other sites' configurations have only synthetic
+  tests or none. Other schedulers (PBS, LSF, SGE) are not validated at all:
+  the code reads their directives from `.command.run` and nothing more.
+- **The tools do not query the scheduler.** They never run `sacct` or
+  `squeue`. What SLURM wrote into `.command.log` is shown; the job state,
+  real elapsed time and `MaxRSS` are only in the scheduler's accounting.
+- **Committed runs use one pipeline.** The fixtures are `nf-core/demo` 1.2.0
+  (Nextflow 26.10.5 with Apptainer locally, Nextflow 25.10.4 with Singularity
+  on SLURM). `nf-core/rnaseq` 3.28.0 was run and diagnosed during
+  development but is not committed. Pipelines that are not nf-core may not
+  write `pipeline_info/`; the tools then fall back to the log, which has no
+  resource usage.
 - **It reports evidence, not a verdict.** The tools show what the files say
   and where it comes from. Naming the cause is left to the reader.
 - **Cleaned work directories.** If `work/` was removed, only the trace,
@@ -259,8 +268,9 @@ The code is in [src/nf_diagnose_mcp/](src/nf_diagnose_mcp/):
 | `sandbox.py` | The only module that touches the filesystem |
 | `textutil.py` | Clipping, unit parsing, rendering, output limits |
 
-[fixtures/](fixtures/) holds five real launch directories of `nf-core/demo`:
-one success and four different failures. Each has an `EXPECTED.md` with the
+[fixtures/](fixtures/) holds seven real launch directories of `nf-core/demo`:
+one success and four different failures on a workstation, and two failures
+on a SLURM cluster. Each has an `EXPECTED.md` with the
 true cause and the command that produced it. They are the reference for
 evaluating a diagnosis, so they are never edited to match the tools' output.
 See [fixtures/README.md](fixtures/README.md) for what is committed and how

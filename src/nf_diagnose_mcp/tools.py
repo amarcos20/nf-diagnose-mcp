@@ -137,19 +137,25 @@ def _validated_files(sandbox: Sandbox, run: Run, log) -> list[dict]:
     return out
 
 
-def _signature(sandbox: Sandbox, run: Run, task: Task) -> str | None:
-    """Normalised end of .command.err, to tell 'same error' from 'different error'."""
+def _signature(sandbox: Sandbox, run: Run, task: Task) -> tuple[str, str] | None:
+    """(file, normalised end of that file), to tell 'same error' from 'different error'.
+
+    The file is .command.err, or .command.log when there is no .command.err: a
+    job the scheduler cancels before the command starts leaves only the log."""
     workdir = locate_workdir(sandbox, run, task)
     if workdir is None:
         return None
-    tail = _tail(sandbox, workdir / ".command.err", 15)
-    if tail is None:
+    for name, label in ((".command.err", "stderr"), (".command.log", ".command.log")):
+        tail = _tail(sandbox, workdir / name, 15)
+        if tail is not None:
+            break
+    else:
         return None
     text = "\n".join(tail[0])
     if task.tag:
         text = text.replace(task.tag, "<TAG>")
     text = re.sub(r"/\S+", "<PATH>", text)
-    return re.sub(r"\d+", "N", text)
+    return label, re.sub(r"\d+", "N", text)
 
 
 def _not_run_for(tasks: list[Task], process: str | None) -> str | None:
@@ -227,7 +233,7 @@ def _same_inputs(sandbox: Sandbox, run: Run, failed: Task, tasks: list[Task], ta
     return out
 
 
-def _task_detail(sandbox: Sandbox, run: Run, t: Task, tail_lines: int, scheduler: bool) -> dict:
+def _task_detail(sandbox: Sandbox, run: Run, t: Task, tail_lines: int, scheduler: bool, log=None) -> dict:
     detail: dict = {
         "task": t.name,
         "hash": t.hash,
@@ -236,6 +242,11 @@ def _task_detail(sandbox: Sandbox, run: Run, t: Task, tail_lines: int, scheduler
         "attempt": t.attempt,
         "error_action": t.error_action,
     }
+    cause = log.process_errors.get(t.name) if log is not None else None
+    # the usual cause only repeats the exit status; anything else is evidence found nowhere else
+    if cause and not any("terminated with an error exit status" in line for line in cause):
+        detail["nextflow_error"] = "\n".join(clip_lines(cause, head=6, tail=2)) + \
+            "  (from the 'Error executing process' record in .nextflow.log)"
     if scheduler and t.native_id:
         detail["job_id"] = t.native_id
     if t.cpus or t.memory or t.time:
@@ -318,7 +329,7 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
         }
         details = []
         if budget > 0:
-            details.append(_task_detail(sandbox, r, rep, tail_lines, scheduler))
+            details.append(_task_detail(sandbox, r, rep, tail_lines, scheduler, log))
             budget -= 1
         rep_sig = _signature(sandbox, r, rep)
         same, different, unknown = 0, [], 0
@@ -334,12 +345,13 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
         for t in different:
             if budget <= 0:
                 break
-            details.append(_task_detail(sandbox, r, t, tail_lines, scheduler))
+            details.append(_task_detail(sandbox, r, t, tail_lines, scheduler, log))
             budget -= 1
         if len(members) > 1:
-            parts = [f"{same} with the same stderr ending as the task shown" if same else "",
-                     f"{len(different)} with a different stderr (shown below if within max_tasks)" if different else "",
-                     f"{unknown} whose work dir/.command.err was not found" if unknown else "",
+            what = rep_sig[0] if rep_sig else "stderr"
+            parts = [f"{same} with the same {what} ending as the task shown" if same else "",
+                     f"{len(different)} with a different {what} (shown below if within max_tasks)" if different else "",
+                     f"{unknown} whose work dir, .command.err and .command.log were not found" if unknown else "",
                      f"{skipped} not compared" if skipped else ""]
             block["other_attempts"] = "; ".join(p for p in parts if p)
         block["details"] = details
@@ -397,6 +409,12 @@ def task_resources(sandbox: Sandbox, run: str, run_name: str | None = None,
         return rows[:max_tasks]
 
     out["killed_by_signal"] = limited(result["killed"], "killed_by_signal") or "none"
+    if result["no_exit"]:
+        out["failed_without_exit_status"] = limited(result["no_exit"], "failed_without_exit_status")
+        notes.append("failed_without_exit_status: for these tasks `realtime` ends when Nextflow stopped waiting for "
+                     "the missing .exitcode (executor.exitReadTimeout), not when the job stopped, "
+                     "so it is not compared with the requested time. failed_tasks shows what the scheduler wrote "
+                     "in .command.log; the scheduler's accounting has the real elapsed time")
     near = sorted(result["near"], key=lambda row: row["why"], reverse=True)
     out[f"near_limit (>= {threshold:.0%} of request)"] = limited(near, "near_limit") or "none"
     out["by_process"] = result["by_process"][:40]

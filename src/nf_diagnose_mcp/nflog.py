@@ -15,6 +15,8 @@ from .textutil import strip_ansi
 MAX_LOG_BYTES = 200 * 1024 * 1024
 MAX_RECORD_LINES = 60
 MAX_KEPT_RECORDS = 40
+MAX_PROCESS_ERRORS = 200
+MAX_CAUSE_LINES = 8
 
 _RECORD = re.compile(
     r"^\S{2,12}-\d{1,2} \d\d:\d\d:\d\d\.\d{3} \[(?P<thread>.*?)\] (?P<level>[A-Z]+)\s+(?P<logger>\S+) - (?P<msg>.*)$"
@@ -24,6 +26,7 @@ _TASK = re.compile(
     r"exit: (?P<exit>\S+); error: (?P<error>.*?); workDir: (?P<workdir>[^\s\]]+)"
 )
 _SUBMIT = re.compile(r"^\[(?P<hash>\w\w/\w{6})\] (?:Re-)?[Ss]ubmitted process > (?P<name>.*)$")
+_PROCESS_ERROR = re.compile(r"^Error executing process > '(?P<name>.*)'\s*$")
 _STATS = re.compile(r"WorkflowStats\[(?P<body>[^\]]*)\]")
 _SUMMARY_KEY = re.compile(r"^\s{2}(\w+)\s*: (.*)$")
 _BANNER = re.compile(r"^\s*([\w.-]+/[\w.-]+) (v?\d+\.\d+[\w.-]*)\s*$")
@@ -63,10 +66,27 @@ class LogInfo:
     dropped_records: int = 0
     tasks: dict[str, dict[str, str]] = field(default_factory=dict)
     hash_by_name: dict[str, list[str]] = field(default_factory=dict)
+    # task name -> the 'Caused by:' block of its "Error executing process" record (last one wins)
+    process_errors: dict[str, list[str]] = field(default_factory=dict)
     validated_files: list[str] = field(default_factory=list)   # nf-schema "Started validating <path>"
     stats: dict[str, int] = field(default_factory=dict)
     completed: bool = False
     truncated: bool = False
+
+
+def _caused_by(lines: list[str]) -> list[str]:
+    """The paragraph under 'Caused by:' in an "Error executing process" record."""
+    cause: list[str] = []
+    inside = False
+    for line in lines:
+        if not inside:
+            inside = line.strip() == "Caused by:"
+        elif line.strip():
+            if len(cause) < MAX_CAUSE_LINES:
+                cause.append(line.strip())
+        elif cause:
+            break
+    return cause
 
 
 def parse_log(sandbox: Sandbox, path, max_bytes: int = MAX_LOG_BYTES) -> LogInfo:
@@ -84,6 +104,11 @@ def parse_log(sandbox: Sandbox, path, max_bytes: int = MAX_LOG_BYTES) -> LogInfo
             return
         while record.lines and not record.lines[-1].strip():
             record.lines.pop()
+        pm = _PROCESS_ERROR.match(record.first) if record.level == "ERROR" else None
+        if pm and (pm.group("name") in info.process_errors or len(info.process_errors) < MAX_PROCESS_ERRORS):
+            cause = _caused_by(record.lines)
+            if cause:
+                info.process_errors[pm.group("name")] = cause
         bucket = info.errors if record.level == "ERROR" else info.warnings
         if len(bucket) < MAX_KEPT_RECORDS:
             bucket.append(record)

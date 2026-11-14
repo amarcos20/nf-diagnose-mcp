@@ -22,9 +22,16 @@ def ratio(used: int | None, requested: int | None) -> float | None:
     return used / requested
 
 
+def no_exit_status(t: Task) -> bool:
+    """Failed without an exit status: Nextflow waited for a .exitcode that was
+    never written, and that wait is counted in the task's realtime."""
+    return t.failed and t.exit is None
+
+
 def task_row(t: Task) -> dict:
     row = {"task": f"{t.name} [{t.hash or '?'}] attempt {t.attempt or '?'}: {t.status}, exit {t.exit if t.exit is not None else '-'}"}
-    mem, tim = ratio(t.peak_rss, t.memory), ratio(t.realtime, t.time)
+    mem = ratio(t.peak_rss, t.memory)
+    tim = None if no_exit_status(t) else ratio(t.realtime, t.time)
     row["memory"] = f"peak_rss {fmt_bytes(t.peak_rss)} / requested {fmt_bytes(t.memory)}" + (f" ({pct(mem)})" if mem is not None else "")
     row["time"] = f"realtime {fmt_ms(t.realtime)} / requested {fmt_ms(t.time)}" + (f" ({pct(tim)})" if tim is not None else "")
     if t.cpus:
@@ -33,11 +40,13 @@ def task_row(t: Task) -> dict:
 
 
 def analyse(tasks: list[Task], threshold: float) -> dict:
-    killed, near = [], []
+    killed, near, no_exit = [], [], []
     for t in tasks:
         sig = signal_for(t.exit)
         mem, tim = ratio(t.peak_rss, t.memory), ratio(t.realtime, t.time)
-        if sig in LIMIT_SIGNALS:
+        if no_exit_status(t):
+            no_exit.append(task_row(t))
+        elif sig in LIMIT_SIGNALS:
             row = task_row(t)
             row["signal"] = f"exit {t.exit} = 128+{t.exit - 128} ({sig})"
             killed.append(row)
@@ -54,7 +63,7 @@ def analyse(tasks: list[Task], threshold: float) -> dict:
     summary = []
     for process, group in by_process.items():
         rss = [t.peak_rss for t in group if t.peak_rss is not None]
-        real = [t.realtime for t in group if t.realtime is not None]
+        real = [t.realtime for t in group if t.realtime is not None and not no_exit_status(t)]
         mem_req = max((t.memory for t in group if t.memory), default=None)
         time_req = max((t.time for t in group if t.time), default=None)
         line = {"process": process, "tasks": len(group)}
@@ -68,4 +77,4 @@ def analyse(tasks: list[Task], threshold: float) -> dict:
         line["time"] = f"max realtime {fmt_ms(longest)} / requested {fmt_ms(time_req)}" + (
             f" ({pct(longest / time_req)})" if longest is not None and time_req else "")
         summary.append(line)
-    return {"killed": killed, "near": near, "by_process": summary}
+    return {"killed": killed, "near": near, "no_exit": no_exit, "by_process": summary}

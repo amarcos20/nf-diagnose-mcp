@@ -201,11 +201,21 @@ def explain(code: int | str | None, executor: str = "local") -> dict:
             "likely_causes": [
                 "the scheduler or node killed the whole job (time limit, memory limit, preemption, node failure) "
                 "before the wrapper could record a status",
+                "on SLURM, the job reached its time limit. Observed in a real run (Slurm 23.11): job state "
+                "TIMEOUT, no .exitcode, and .command.log ending with 'slurmstepd: error: *** JOB … CANCELLED AT … "
+                "DUE TO TIME LIMIT ***'. The task had no exit status at all, not 128+signal, so nf-core's "
+                "base.config did not retry it (error action FINISH)",
                 "the run was interrupted while the task was running (status ABORTED in the trace)",
+                "Nextflow refused to launch the task, so no command ever ran. Observed in a real run with the "
+                "local executor: 'Task requirement exceeds available memory -- req: 15 GB; avail: 13 GB', with "
+                "an empty task directory. The reason is only in the 'Error executing process' record of "
+                ".nextflow.log (failed_tasks shows it as nextflow_error)",
             ],
             "what_to_check": [SLURM_CHECK if executor == "slurm" else
                               "Check whether the task directory has a .exitcode file and what the end of .command.log says.",
-                              "In .nextflow.log, look at the records around the task's 'Task completed' line."],
+                              "In .nextflow.log, look at the records around the task's 'Task completed' line.",
+                              "If the task directory has no .command.run, the task was never launched: compare the "
+                              "cpus and memory it asks for with what the machine or `process.resourceLimits` allows."],
             "sources": _src("nextflow_unknown", *(("slurm_states",) if executor == "slurm" else ())),
         }
     try:

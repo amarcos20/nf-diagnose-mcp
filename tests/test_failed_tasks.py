@@ -98,7 +98,7 @@ def test_missing_work_dir_is_reported_not_fatal(copy_fixture):
     shutil.rmtree(path / "work")
     out = tools.failed_tasks(sandbox, str(path))
     assert "exit: 137" in out and "workdir: not found on disk" in out
-    assert "whose work dir/.command.err was not found" in out
+    assert "whose work dir, .command.err and .command.log were not found" in out
 
 
 def test_tail_lines_and_max_tasks_are_honoured(sb):
@@ -229,3 +229,52 @@ def test_input_problem_hint():
     assert input_problem_hint(["gzip: reads.fq.gz: unexpected end of file"]) == "unexpected end of file"
     assert input_problem_hint(["[E::bgzf_read] Invalid BGZF header at offset 12"]) == "Invalid BGZF header"
     assert input_problem_hint(["Killed", "FATAL: container creation failed"]) is None
+
+
+# -- real SLURM runs ----------------------------------------------------------
+
+def test_slurm_oom(sb):
+    out = tools.failed_tasks(sb, "slurm-oom")
+    assert "executor: slurm" in out and "status: ERR" in out
+    assert "process: NFCORE_DEMO:DEMO:FASTQC" in out and "failed_attempts: 2" in out
+    assert "samples: SAMPLE2_PE" in out
+    assert "exit: 137 — 128+9 = killed by SIGKILL" in out
+    assert "job_id: 2232440" in out and "attempt: 2" in out
+    # here the request is the enforced limit, and the wrapper shows what was submitted
+    assert "requested: cpus 2, memory 150 MB, time 10m00s" in out
+    assert "#SBATCH --mem 150M" in out and "#SBATCH -p short" in out
+    # the scheduler's message is only in .command.log
+    assert "slurmstepd: error: Detected 1 oom_kill event in StepId=2232440.batch" in out
+    assert "1 with the same stderr ending" in out
+    assert "aborted_tasks: 2" in out
+
+
+def test_slurm_timeout(sb):
+    out = tools.failed_tasks(sb, "slurm-timeout")
+    assert "executor: slurm" in out and "status: ERR" in out
+    assert "process: NFCORE_DEMO:DEMO:SEQTK_TRIM" in out and "failed_attempts: 3" in out
+    assert "samples: SAMPLE1_PE, SAMPLE2_PE, SAMPLE3_SE" in out
+    assert "exit: - — no exit status recorded" in out and "error_action: FINISH" in out
+    assert "requested: cpus 2, memory 4.0 GB, time 1m00s" in out and "#SBATCH -t 00:01:00" in out
+    assert "exitcode_file: missing (the wrapper never finished" in out
+    assert ".command.err: (missing)" in out
+    assert "CANCELLED AT 2026-11-14T11:42:59 DUE TO TIME LIMIT" in out
+    # no .command.err to compare: the three cancellations are recognised from .command.log
+    assert "2 with the same .command.log ending as the task shown" in out
+    assert out.count("- task:") == 1
+
+
+def test_slurm_timeout_realtime_is_not_read_as_seven_times_the_limit(sb):
+    out = tools.task_resources(sb, "slurm-timeout")
+    section = out.split("failed_without_exit_status:")[1].split("near_limit")[0]
+    assert section.count("- task:") == 3 and "realtime 7m00s / requested 1m00s" in section
+    assert "%" not in section
+    assert "near_limit (>= 80% of request): none" in out
+    assert "max realtime - / requested 1m00s" in out
+    assert "executor.exitReadTimeout" in out
+
+
+def test_slurm_oom_resources(sb):
+    out = tools.task_resources(sb, "slurm-oom")
+    assert out.count("exit 137 = 128+9 (SIGKILL)") == 2
+    assert "peak_rss - / requested 150 MB" in out

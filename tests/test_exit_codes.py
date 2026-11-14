@@ -92,3 +92,14 @@ def test_no_output_names_this_repositorys_fixtures(fixtures):
                 assert name not in out, (code, executor, name)
     for code in (None, *range(0, 256)):
         assert "fixture" not in exit_codes.short_meaning(code).lower()
+
+
+def test_no_exit_status_mentions_tasks_that_were_never_launched():
+    out = tools.explain_exit_code("-")
+    assert "refused to launch" in out and "exceeds available memory" in out
+    assert "no .command.run" in out
+
+
+def test_no_exit_status_mentions_the_slurm_time_limit():
+    out = tools.explain_exit_code("-", "slurm")
+    assert "DUE TO TIME LIMIT" in out and "TIMEOUT" in out and "did not retry" in out

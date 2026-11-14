@@ -128,6 +128,16 @@ def _task_from_row(row: dict, source: str) -> Task:
     )
 
 
+_JS_ESCAPE = re.compile(r"\\(.)", re.S)
+
+
+def _json_escape(m: re.Match) -> str:
+    """Rewrite the one escape that is valid in JavaScript strings but not in
+    JSON. Escapes are consumed in pairs, so the quote in ``\\\\'`` (an escaped
+    backslash followed by a quote) is left alone."""
+    return "'" if m.group(1) == "'" else m.group(0)
+
+
 def tasks_from_report(sandbox: Sandbox, path: Path) -> list[Task] | None:
     """Tasks from the JSON embedded in the HTML execution report, or None."""
     try:
@@ -142,7 +152,12 @@ def tasks_from_report(sandbox: Sandbox, path: Path) -> list[Task] | None:
     try:
         data, _ = json.JSONDecoder().raw_decode(text, m.end())
     except ValueError:
-        return None
+        # The report is JavaScript, not JSON: Nextflow escapes single quotes
+        # (\') in task scripts, which JSON does not allow.
+        try:
+            data, _ = json.JSONDecoder().raw_decode(_JS_ESCAPE.sub(_json_escape, text[m.end():]))
+        except ValueError:
+            return None
     rows = data.get("trace") if isinstance(data, dict) else None
     if not isinstance(rows, list):
         return None
@@ -408,7 +423,11 @@ def collect_evidence(sandbox: Sandbox, run: Run, task: Task, tail_lines: int) ->
         except SandboxError:
             pass
     else:
-        ev["exitcode_file"] = "missing (the wrapper never finished: killed by the scheduler/node, or still running)"
+        if sandbox.is_file(workdir / ".command.run"):
+            ev["exitcode_file"] = "missing (the wrapper never finished: killed by the scheduler/node, or still running)"
+        else:
+            ev["exitcode_file"] = ("missing, and the task directory has no .command.run: Nextflow never launched "
+                                   "this task, so no command ran")
 
     command = read_command(sandbox, workdir)
     if command:
