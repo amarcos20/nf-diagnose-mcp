@@ -1,0 +1,3 @@
+Workflow:
+    nf-core/demo: v1.2.0-g32893af
+    Nextflow: 25.10.4

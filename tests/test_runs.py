@@ -10,6 +10,8 @@ EXPECTED_STATUS = {
     "demo-container-error": "ERR",
     "demo-truncated-fastq": "ERR",
     "demo-bad-samplesheet": "FAILED",
+    "slurm-oom": "ERR",
+    "slurm-timeout": "ERR",
 }
 
 
@@ -35,12 +37,12 @@ def test_validation_failure_is_not_trusted_from_history(sb, fixtures):
 
 def test_list_runs_output(sb):
     out = tools.list_runs(sb)
-    assert "runs_found: 5" in out
+    assert "runs_found: 7" in out
     assert "name: high_raman" in out and "tasks: 4 completed, 4 failed, 2 aborted" in out
     assert "version: 1.2.0 revision 671a0726cb" in out and "nextflow: 26.10.5" in out
     assert "status: FAILED (history has no status" in out
     # latest first
-    assert out.index("demo-truncated-fastq") < out.index("demo-ok")
+    assert out.index("slurm-timeout") < out.index("demo-truncated-fastq") < out.index("demo-ok")
     assert len(out) <= 6000
 
 

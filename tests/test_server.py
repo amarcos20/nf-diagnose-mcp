@@ -40,7 +40,7 @@ def test_calls_over_stdio():
         ("explain_exit_code", {"code": "137", "executor": "slurm"}),
         ("task_resources", {"run": "demo-ok"}),
     ])
-    assert "runs_found: 5" in results[0]
+    assert "runs_found: 7" in results[0]
     assert "exit: 137" in results[1] and "--memory 200M" in results[1]
     assert "SIGKILL" in results[2]
     assert "max peak_rss 869 MB" in results[3]

@@ -1,0 +1,1 @@
+2026-11-14 11:41:30	7m 39s	boring_jennings	ERR	32893afef8076a03a2767a020b3f0cab2e0b40b2	1ca97171-e117-4fbc-8bf3-366ec448c69c	nextflow run nf-core/demo -r 1.2.0 -profile test,singularity -c ../slurm.config -c ../short-time.config --outdir results -ansi-log false

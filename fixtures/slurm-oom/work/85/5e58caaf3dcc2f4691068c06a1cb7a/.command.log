@@ -1,0 +1,4 @@
+application/gzip
+application/gzip
+/projects/PROJECT/user/nf-diagnose-test/run-oom/work/85/5e58caaf3dcc2f4691068c06a1cb7a/.command.sh: line 10:    57 Killed                  fastqc --quiet --threads 2 --memory 100 SAMPLE2_PE_1.gz SAMPLE2_PE_2.gz
+slurmstepd: error: Detected 1 oom_kill event in StepId=2232440.batch. Some of the step tasks have been OOM Killed.

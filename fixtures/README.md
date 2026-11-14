@@ -1,8 +1,10 @@
 # Fixtures
 
-Real launch directories of `nf-core/demo` 1.2.0 (Nextflow 26.10.5, Apptainer
-1.4.5, local executor), produced by actually running the pipeline. Each has
-an `EXPECTED.md` with the true cause of the outcome and the exact command.
+Real launch directories of `nf-core/demo` 1.2.0, produced by actually running
+the pipeline. The `demo-*` runs are from a workstation (Nextflow 26.10.5,
+Apptainer 1.4.5, local executor); the `slurm-*` runs are from an HPC cluster
+(Nextflow 25.10.4, Singularity, Slurm 23.11.8). Each has an `EXPECTED.md`
+with the true cause of the outcome and the exact command.
 
 | Fixture | Outcome |
 |---|---|
@@ -11,6 +13,8 @@ an `EXPECTED.md` with the true cause of the outcome and the exact command.
 | `demo-container-error` | Apptainer fails to start the container, exit 255 |
 | `demo-truncated-fastq` | FASTQC fails on a truncated input, exit 1 |
 | `demo-bad-samplesheet` | samplesheet validation fails, no task runs |
+| `slurm-oom` | FASTQC exceeds `--mem`, SLURM OOM-kills it, exit 137, retried |
+| `slurm-timeout` | SEQTK_TRIM cancelled at the SLURM time limit, no exit status |
 
 ## What is and is not committed
 
@@ -24,10 +28,12 @@ staged files and container images are not.
 
 - **Anonymised.** The user name and host name of the machine that produced
   the runs were replaced with `user` and `workstation` using
-  `scripts/anonymize_fixtures.py`. Nothing else was edited.
+  `scripts/anonymize_fixtures.py`. In the `slurm-*` runs the user, project,
+  account, node names and login node were replaced the same way (`user`,
+  `PROJECT`, `myaccount`, `node001`…, `login01`). Nothing else was edited.
 - **Absolute paths are stale.** Logs and reports refer to
-  `/home/user/bioinf/nf-diagnose-mcp/fixtures/...`, which will not exist on
-  your machine. This is deliberate test coverage: a run directory that was
+  `/home/user/bioinf/nf-diagnose-mcp/fixtures/...` or
+  `/projects/PROJECT/user/...`, which will not exist on your machine. This is deliberate test coverage: a run directory that was
   moved or copied from a cluster has the same problem, and task directories
   then have to be located from the trace `hash` (`ab/123456` →
   `work/ab/123456*`).

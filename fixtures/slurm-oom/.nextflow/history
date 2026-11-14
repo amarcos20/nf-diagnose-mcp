@@ -1,0 +1,1 @@
+2026-11-14 11:34:58	4m 54s	agitated_aryabhata	ERR	32893afef8076a03a2767a020b3f0cab2e0b40b2	d66c3dc4-68e5-4e8c-bd6e-6ea8a80acb59	nextflow run nf-core/demo -r 1.2.0 -profile test,singularity -c ../slurm.config -c ../low-memory.config --outdir results -ansi-log false
