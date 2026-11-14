@@ -40,6 +40,12 @@ _ERROR_HINT = re.compile(
 _SCHEDULER_DIRECTIVE = re.compile(r"^#(SBATCH|PBS|\$|BSUB|OAR|FLUX|COBALT)\b")
 _STAGE = re.compile(r"\b(?:ln -s\w*|cp -fRL) (\S+) (\S+)\s*$")
 _CONTAINER_CMD = re.compile(r"\b(apptainer|singularity|docker|podman|shifter|charliecloud|ch-run|sarus)\s+(exec|run)\b")
+# `env -` / `env -i` in front of the container engine: it starts with an empty environment
+_CLEAN_ENV = re.compile(r"\benv\s+(?:-|-i|--ignore-environment)\s")
+_ASSIGNED = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)=")
+# stderr lines for which the cleared environment is relevant, and the variable they name
+_ENV_HINT = re.compile(r"\bnot set\b|\bunset\b|not defined|unbound variable|environment variable", re.I)
+_ENV_VAR = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
 
 
 @dataclass
@@ -329,6 +335,10 @@ def read_wrapper_facts(sandbox: Sandbox, workdir: Path) -> dict:
             if "container" not in facts:
                 m = _CONTAINER_CMD.search(line)
                 if m and not line.lstrip().startswith("#"):
+                    clean = _CLEAN_ENV.search(line[: m.start()])
+                    if clean:
+                        passed = _ASSIGNED.findall(line[clean.end(): m.start()])
+                        facts["_clean_env"] = list(dict.fromkeys(passed))[:12]
                     cmd = line[m.start():]
                     cut = re.search(r"\s(/bin/)?(ba)?sh -c ", cmd)
                     if cut:
@@ -363,7 +373,9 @@ def collect_evidence(sandbox: Sandbox, run: Run, task: Task, tail_lines: int) ->
     command = read_command(sandbox, workdir)
     if command:
         ev["command"] = command
-    ev.update(read_wrapper_facts(sandbox, workdir))
+    facts = read_wrapper_facts(sandbox, workdir)
+    clean_env = facts.pop("_clean_env", None)
+    ev.update(facts)
 
     err = _tail(sandbox, workdir / ".command.err", tail_lines)
     err_lines: list[str] = []
@@ -386,10 +398,36 @@ def collect_evidence(sandbox: Sandbox, run: Run, task: Task, tail_lines: int) ->
     # scheduler appended (e.g. slurmstepd messages). Show only what .command.err
     # did not already show.
     log = _tail(sandbox, workdir / ".command.log", tail_lines)
+    log_lines: list[str] = []
     if log is not None:
         log_lines, total, windowed = log
         seen = set(err_lines)
         extra = [l for l in log_lines if l not in seen]
         if extra:
             ev[f".command.log (lines not in .command.err, from last {len(log_lines)} of {total}{'+' if windowed else ''})"] = "\n".join(extra)
+
+    if clean_env is not None:
+        note = clean_environment_note(clean_env, err_lines + log_lines)
+        if note:
+            ev["container_environment"] = note
     return ev
+
+
+def clean_environment_note(passed: list[str], lines: list[str]) -> str | None:
+    """Say that the container engine was started with a cleared environment,
+    but only when the task's output complains about an environment variable:
+    otherwise it is not relevant to the failure."""
+    hits = [l for l in lines if _ENV_HINT.search(l)]
+    if not hits:
+        return None
+    forwarded = set(passed) | {p.split("ENV_", 1)[1] for p in passed if "ENV_" in p}
+    named = list(dict.fromkeys(v for l in hits for v in _ENV_VAR.findall(l) if v not in forwarded))[:5]
+    note = ("the container engine is started through `env -` (see .command.run), which clears the environment: "
+            f"only {', '.join(passed) if passed else 'no variables'} "
+            f"{'are' if len(passed) != 1 else 'is'} passed on.")
+    if named:
+        note += (f" {', '.join(named)} (named in the output above) {'are' if len(named) > 1 else 'is'} not among them, "
+                 "so setting it in the shell that runs `nextflow run` does not reach the container engine.")
+    else:
+        note += " Variables set in the shell that runs `nextflow run` do not reach the container engine."
+    return note

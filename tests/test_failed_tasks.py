@@ -141,3 +141,29 @@ def test_validated_file_is_bounded_and_sandboxed(copy_fixture, tmp_path_factory)
     (run / "samplesheet.csv").symlink_to(outside)
     out = tools.failed_tasks(sandbox, str(run))
     assert "secret" not in out and "not read (remote, not on disk, or outside the allowed roots)" in out
+
+
+def test_container_error_says_the_engine_gets_a_cleared_environment(sb):
+    out = tools.failed_tasks(sb, "demo-container-error")
+    # Nextflow starts Apptainer through `env -`: exporting the variable in the launching shell cannot help
+    assert "container_environment: the container engine is started through `env -`" in out
+    assert "only PATH, APPTAINERENV_TMP," in out
+    assert "DBUS_SESSION_BUS_ADDRESS (named in the output above) is not among them" in out
+    assert "does not reach the container engine" in out
+
+
+def test_cleared_environment_is_only_mentioned_when_relevant(sb):
+    # same `env -` wrapper, but these failures are not about an environment variable
+    for run in ("demo-oom", "demo-truncated-fastq"):
+        assert "container_environment" not in tools.failed_tasks(sb, run)
+
+
+def test_clean_environment_note():
+    from nf_diagnose_mcp.tasks import clean_environment_note
+    assert clean_environment_note(["PATH"], ["FATAL: something else failed"]) is None
+    # a variable that *is* forwarded is not reported as missing
+    note = clean_environment_note(["PATH", "APPTAINERENV_TMPDIR"], ["error: TMPDIR is not set"])
+    assert "named in the output" not in note and "do not reach the container engine" in note
+    note = clean_environment_note([], ["XDG_RUNTIME_DIR not set", "DBUS_SESSION_BUS_ADDRESS is not set"])
+    assert "only no variables are passed on" in note
+    assert "XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS (named in the output above) are not among them" in note
