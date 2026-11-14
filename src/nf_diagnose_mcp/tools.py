@@ -12,10 +12,13 @@ from . import exit_codes, resources
 from .runs import (Run, discover, effective_status, option_from_command, resolve_run,
                    task_counts_from_trace)
 from .sandbox import Sandbox, SandboxError
-from .tasks import Task, _tail, collect_evidence, load_tasks, locate_workdir
+from .tasks import (Task, _tail, collect_evidence, input_problem_hint, load_tasks, locate_workdir,
+                    staged_sources)
 from .textutil import MAX_CHARS, cap, clip_line, clip_lines, fmt_bytes, fmt_ms, render
 
 MAX_COMPARE_PER_GROUP = 50
+MAX_SHARED_SCAN = 200       # completed tasks whose .command.run is read to find shared inputs
+MAX_SHARED_SHOWN = 10
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -175,6 +178,55 @@ def _not_run_for(tasks: list[Task], process: str | None) -> str | None:
               "submitted because the run was stopping, or not applicable to them (heuristic: compares task tags)")
 
 
+def _short_path(path: str) -> str:
+    parts = path.rstrip("/").split("/")
+    return path if len(parts) <= 3 else "…/" + "/".join(parts[-2:])
+
+
+def _same_inputs(sandbox: Sandbox, run: Run, failed: Task, tasks: list[Task], tail_lines: int) -> dict | None:
+    """Completed tasks that were given a file the failed task was also given,
+    shown only when the failed task's output looks like an input-data problem."""
+    workdir = locate_workdir(sandbox, run, failed)
+    if workdir is None:
+        return None
+    lines: list[str] = []
+    for name in (".command.err", ".command.log"):
+        tail = _tail(sandbox, workdir / name, tail_lines)
+        if tail is not None:
+            lines += tail[0]
+    hint = input_problem_hint(lines)
+    if hint is None:
+        return None
+    mine = set(staged_sources(sandbox, workdir))
+    if not mine:
+        return None
+    completed = [t for t in tasks if t.status in ("COMPLETED", "CACHED") and not t.failed]
+    rows, unreadable = [], 0
+    for t in completed[:MAX_SHARED_SCAN]:
+        other = locate_workdir(sandbox, run, t)
+        if other is None:
+            unreadable += 1
+            continue
+        shared = [s for s in staged_sources(sandbox, other) if s in mine]
+        if shared:
+            files = ", ".join(_short_path(s) for s in shared[:3]) + (f" (+{len(shared) - 3} more)" if len(shared) > 3 else "")
+            rows.append(clip_line(f"{t.name} [{t.hash or '?'}]: {t.status}, exit {t.exit if t.exit is not None else '-'} — same input: {files}", 400))
+    if not rows:
+        return None
+    checked = f"{min(len(completed), MAX_SHARED_SCAN) - unreadable} of {len(completed)} completed tasks checked"
+    out: dict = {
+        "why_shown": f"the output of the failed task looks like an input-data problem (it says '{hint}'); "
+                     "heuristic, the words are matched literally",
+        "tasks": rows[:MAX_SHARED_SHOWN],
+    }
+    if len(rows) > MAX_SHARED_SHOWN:
+        out["omitted"] = f"{len(rows) - MAX_SHARED_SHOWN} more tasks share an input"
+    out["note"] = ("an exit status of 0 does not show that a task read its input to the end. If one of the shared files "
+                   "is the cause, the outputs of these tasks should not be trusted; which staged file the error refers "
+                   f"to is not determined here (see staged_inputs and the command). {checked}.")
+    return out
+
+
 def _task_detail(sandbox: Sandbox, run: Run, t: Task, tail_lines: int, scheduler: bool) -> dict:
     detail: dict = {
         "task": t.name,
@@ -291,6 +343,7 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
                      f"{skipped} not compared" if skipped else ""]
             block["other_attempts"] = "; ".join(p for p in parts if p)
         block["details"] = details
+        block["completed_tasks_with_same_inputs"] = _same_inputs(sandbox, r, rep, tasks, tail_lines)
         blocks.append(block)
     out["failed_groups"] = blocks
 

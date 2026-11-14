@@ -203,3 +203,29 @@ def test_not_run_for_ignores_processes_tagged_differently():
     assert _not_run_for(tasks, "ALIGN").startswith("s3 — ")
     assert _not_run_for(tasks, "CALL") is None      # no process has all of CALL's tags
     assert _not_run_for(tasks, "QC") is None and _not_run_for(tasks, "MULTIQC") is None
+
+
+def test_truncated_fastq_flags_the_completed_task_that_read_the_same_file(sb):
+    out = tools.failed_tasks(sb, "demo-truncated-fastq")
+    assert "completed_tasks_with_same_inputs:" in out
+    assert "it says 'Ran out of data'" in out
+    # SEQTK_TRIM (SAMPLE1_PE) trimmed the truncated file and exited 0
+    assert "NFCORE_DEMO:DEMO:SEQTK_TRIM (SAMPLE1_PE) [ab/c75d37]: COMPLETED, exit 0 — same input:" in out
+    assert "…/data/sample1_R1.fastq.gz" in out
+    assert "should not be trusted" in out
+    # tasks that only got the intact remote copy of sample1_R1 are not listed
+    section = out[out.index("completed_tasks_with_same_inputs:"):]
+    assert "SAMPLE3_SE" not in section and "SAMPLE2_PE" not in section
+    assert len(out) <= MAX_CHARS["failed_tasks"]
+
+
+def test_shared_inputs_are_not_listed_for_failures_that_are_not_about_input_data(sb):
+    for run in ("demo-oom", "demo-container-error"):
+        assert "completed_tasks_with_same_inputs" not in tools.failed_tasks(sb, run)
+
+
+def test_input_problem_hint():
+    from nf_diagnose_mcp.tasks import input_problem_hint
+    assert input_problem_hint(["gzip: reads.fq.gz: unexpected end of file"]) == "unexpected end of file"
+    assert input_problem_hint(["[E::bgzf_read] Invalid BGZF header at offset 12"]) == "Invalid BGZF header"
+    assert input_problem_hint(["Killed", "FATAL: container creation failed"]) is None

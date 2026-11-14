@@ -40,6 +40,12 @@ _ERROR_HINT = re.compile(
 _SCHEDULER_DIRECTIVE = re.compile(r"^#(SBATCH|PBS|\$|BSUB|OAR|FLUX|COBALT)\b")
 _STAGE = re.compile(r"\b(?:ln -s\w*|cp -fRL) (\S+) (\S+)\s*$")
 _CONTAINER_CMD = re.compile(r"\b(apptainer|singularity|docker|podman|shifter|charliecloud|ch-run|sarus)\s+(exec|run)\b")
+# Output that suggests the failure is about the content of an input file. Literal on purpose.
+_INPUT_HINT = re.compile(
+    r"truncated|corrupt\w*|unexpected end of (?:file|data|stream)|premature end|unexpected eof|ran out of data|"
+    r"malformed|not in gzip format|crc error|invalid (?:gzip|bgzf|fastq|fasta|bam|cram|vcf) ?\w*",
+    re.I,
+)
 # `env -` / `env -i` in front of the container engine: it starts with an empty environment
 _CLEAN_ENV = re.compile(r"\benv\s+(?:-|-i|--ignore-environment)\s")
 _ASSIGNED = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)=")
@@ -351,6 +357,40 @@ def read_wrapper_facts(sandbox: Sandbox, workdir: Path) -> dict:
     if staged:
         facts["staged_inputs"] = staged[:8] + ([f"…[{len(staged) - 8} more]"] if len(staged) > 8 else [])
     return facts
+
+
+def staged_sources(sandbox: Sandbox, workdir: Path, limit: int = 500) -> list[str]:
+    """Source paths of the inputs staged into a task directory (``nxf_stage``
+    in ``.command.run``), as recorded: they may be stale absolute paths."""
+    path = workdir / ".command.run"
+    sources: list[str] = []
+    if not sandbox.is_file(path):
+        return sources
+    in_stage = False
+    try:
+        for line in sandbox.iter_lines(path, 1024 * 1024):
+            if line.startswith("nxf_stage()"):
+                in_stage = True
+            elif in_stage and line.startswith("}"):
+                break
+            elif in_stage:
+                m = _STAGE.search(line)
+                if m:
+                    sources.append(m.group(1))
+                    if len(sources) >= limit:
+                        break
+    except SandboxError:
+        pass
+    return sources
+
+
+def input_problem_hint(lines: list[str]) -> str | None:
+    """The words in a task's output that make it look like an input-data problem."""
+    for line in lines:
+        m = _INPUT_HINT.search(line)
+        if m:
+            return m.group(0)
+    return None
 
 
 def collect_evidence(sandbox: Sandbox, run: Run, task: Task, tail_lines: int) -> dict:
