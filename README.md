@@ -73,6 +73,11 @@ configuration.
 
 Then ask, for example, "why did my last run in `rnaseq-2026-11/` fail?".
 
+The server never writes files, so a diagnosis exists only in the conversation
+with your assistant. To keep one, ask the assistant to save it ("write this
+diagnosis to `diagnosis.md`"): it will use its own file tools, in a location
+you choose.
+
 ## Tools
 
 All four tools are read-only and return plain, YAML-like text. The intended
@@ -275,6 +280,9 @@ true cause and the command that produced it. They are the reference for
 evaluating a diagnosis, so they are never edited to match the tools' output.
 See [fixtures/README.md](fixtures/README.md) for what is committed and how
 the runs were anonymised.
+
+[docs/evaluation.md](docs/evaluation.md) records how the tools were evaluated
+against those runs, example outputs, the defects found and what is still open.
 
 ## License
 
