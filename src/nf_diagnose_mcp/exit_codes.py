@@ -2,7 +2,9 @@
 
 Nothing here is guessed. Every statement is tied to one of the SOURCES below
 (each quote was checked against the live page on 2026-11-11), or is marked
-as an observation from this repository's fixtures, or as "not documented".
+as an observation from a real run, or as "not documented". The output never
+names this repository's test runs: it is read by users who do not have them,
+and by models that are evaluated on them.
 An exit status alone never proves a cause: the output always says what else
 to check.
 """
@@ -233,8 +235,8 @@ def explain(code: int | str | None, executor: str = "local") -> dict:
         if name == "SIGKILL":
             causes += [
                 "out of memory: the kernel OOM killer (cgroup memory limit set by the scheduler or container "
-                "engine) kills with SIGKILL. Observed in this project's fixture demo-oom: a 200 MB cgroup limit "
-                "gave exit 137 and 'Killed' in .command.err, with no error message from the tool",
+                "engine) kills with SIGKILL. Observed in a real run (Apptainer with a 200 MB cgroup limit): exit 137 "
+                "and only the shell's 'Killed' line in .command.err, with no error message from the tool",
                 "the scheduler killing the job after a limit (on SLURM a time limit sends SIGTERM, then SIGKILL)",
                 "someone or something else sent `kill -9`",
             ]
@@ -320,8 +322,8 @@ def explain(code: int | str | None, executor: str = "local") -> dict:
         out["meaning"] = ("255 has no standard meaning; it is whatever the program chose. One documented case: "
                           "Apptainer exits with 255 on any FATAL error, i.e. the container failed before the "
                           "tool started.")
-        causes += ["container runtime error (look for a line starting with 'FATAL:' in .command.err). Observed in this "
-                   "project's fixture demo-container-error: 'FATAL: container creation failed … cannot use cgroups'",
+        causes += ["container runtime error (look for a line starting with 'FATAL:' in .command.err). Observed in a "
+                   "real run: 'FATAL: container creation failed … cannot use cgroups'",
                    "the tool itself returned 255 (some tools use it for any error, or `exit -1`)"]
         fixes += ["If the error is from the container runtime, fix the container configuration (image path, bind "
                   "mounts, runOptions/containerOptions); changing resources will not help.", STDERR_FIX]

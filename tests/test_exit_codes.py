@@ -76,3 +76,19 @@ def test_invalid_input():
 def test_short_meaning_is_one_line():
     for code in (None, 0, 1, 126, 127, 137, 247, 255):
         assert "\n" not in exit_codes.short_meaning(code)
+
+
+def test_no_output_names_this_repositorys_fixtures(fixtures):
+    """The explanations are read by users who do not have the fixtures, and by
+    models that are evaluated on them: naming one would give the answer away."""
+    names = sorted(p.name for p in fixtures.iterdir() if p.is_dir())
+    assert len(names) >= 5
+    codes = [str(c) for c in range(0, 256)] + ["-", "", "abc", "300"]
+    for executor in ("local", "slurm"):
+        for code in codes:
+            out = tools.explain_exit_code(code, executor).lower()
+            assert "fixture" not in out, (code, executor)
+            for name in names:
+                assert name not in out, (code, executor, name)
+    for code in (None, *range(0, 256)):
+        assert "fixture" not in exit_codes.short_meaning(code).lower()
