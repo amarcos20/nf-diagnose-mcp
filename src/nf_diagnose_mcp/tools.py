@@ -417,9 +417,11 @@ def task_resources(sandbox: Sandbox, run: str, run_name: str | None = None,
                      "in .command.log; the scheduler's accounting has the real elapsed time")
     near = sorted(result["near"], key=lambda row: row["why"], reverse=True)
     out[f"near_limit (>= {threshold:.0%} of request)"] = limited(near, "near_limit") or "none"
-    out["by_process"] = result["by_process"][:40]
-    if len(result["by_process"]) > 40:
-        notes.append(f"by_process: showing 40 of {len(result['by_process'])} processes")
+    processes = result["by_process"]
+    out["by_process"] = processes[:max_tasks]
+    if len(processes) > max_tasks:
+        notes.append(f"by_process: showing {max_tasks} of {len(processes)} processes: those with failed tasks, "
+                     "then those that used the largest share of their request (raise max_tasks, max 50)")
     if any(t.peak_rss is None for t in tasks if resources.signal_for(t.exit) in resources.LIMIT_SIGNALS):
         notes.append("killed tasks have no usage metrics (Nextflow could not collect them), so the trace cannot "
                      "show how close to the limit they got; compare with successful tasks of the same process")

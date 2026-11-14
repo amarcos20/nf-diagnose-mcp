@@ -101,13 +101,14 @@ def explain_exit_code(code: str, executor: str = "local") -> str:
 @_safe
 def task_resources(run: str, run_name: str = "", threshold: float = 0.8, max_tasks: int = 15) -> str:
     """Requested vs. used memory/time: tasks killed by a signal, tasks near their limit,
-    and a per-process summary (max peak_rss and realtime against the request).
+    and a per-process summary (max peak_rss and realtime against the request),
+    processes with failed tasks first, then those closest to their request.
 
     Args:
         run: launch directory or --outdir of the run (as shown by list_runs).
         run_name: Nextflow run name. Empty = the latest run there.
         threshold: flag tasks using at least this fraction of requested memory or time (0.1-1.0).
-        max_tasks: maximum rows per list (1-50).
+        max_tasks: maximum rows per list, and processes in the summary (1-50).
     """
     return tools.task_resources(sandbox(), run, run_name or None, threshold, max_tasks)
 

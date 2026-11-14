@@ -183,3 +183,29 @@ def test_realtime_of_a_task_without_exit_status_is_not_compared_with_the_request
     assert "near_limit (>= 80% of request): none" in out
     assert "%" not in out.split("failed_without_exit_status:")[1].split("near_limit")[0]
     assert "executor.exitReadTimeout" in out
+
+
+def make_many_process_run(tmp_path, n_processes=60):
+    """One task per process, in execution order from the lightest to the heaviest."""
+    rows = []
+    for i in range(1, n_processes + 1):
+        name = f"PIPELINE:SUBWORKFLOW_WITH_A_LONG_NAME:ANOTHER_SUBWORKFLOW:STEP_{i:02d}"
+        rows.append('{"task_id":"%d","hash":"aa\\/%06d","name":"%s (s1)","process":"%s","tag":"s1","status":"COMPLETED",'
+                    '"exit":"0","attempt":"1","cpus":"2","memory":"%d","time":"3600000","peak_rss":"%d","realtime":"1000"}'
+                    % (i, i, name, name, 1024**3, i * 10 * 1024**2))
+    return make_report_run(tmp_path, ",\n".join(rows))
+
+
+def test_process_summary_shows_the_heaviest_processes_first(tmp_path):
+    sandbox, launch = make_many_process_run(tmp_path)
+    out = tools.task_resources(sandbox, str(launch))
+    assert "output truncated" not in out
+    assert out.count("- process:") == 15
+    assert "by_process: showing 15 of 60 processes" in out
+    assert "STEP_60" in out and "STEP_46" in out and "STEP_45" not in out
+    assert out.index("STEP_60") < out.index("STEP_46")
+
+
+def test_process_with_failures_comes_before_heavier_ones(sb):
+    out = tools.task_resources(sb, "demo-truncated-fastq")
+    assert out.index("process: NFCORE_DEMO:DEMO:FASTQC") < out.index("process: NFCORE_DEMO:DEMO:SEQTK_TRIM")

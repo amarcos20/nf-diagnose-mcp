@@ -5,8 +5,8 @@ got wrong, and what was changed. Last updated 2026-11-14.
 
 The short version: on the five workstation fixtures, a diagnosis made from
 the tools alone was correct in 5 of 5 cases. Running a second pipeline
-(`nf-core/rnaseq`) and a real SLURM cluster then exposed five defects that
-the fixtures could not, all fixed since. One known defect is still open.
+(`nf-core/rnaseq`) and a real SLURM cluster then exposed six defects that
+the fixtures could not, all fixed since.
 
 ## What the tools return
 
@@ -218,30 +218,32 @@ failed_without_exit_status:
     cpu: - of 2 cpus
 near_limit (>= 80% of request): none
 by_process:
-  - process: NFCORE_DEMO:DEMO:COWPY
-    tasks: 1
-    memory: max peak_rss 3.4 MB / requested 4.0 GB (<1%)
-    time: max realtime 239ms / requested 10m00s (<1%)
-  - process: NFCORE_DEMO:DEMO:FASTQC
-    tasks: 3
-    memory: max peak_rss 457 MB / requested 4.0 GB (11%)
-    time: max realtime 5.0s / requested 10m00s (<1%)
   - process: NFCORE_DEMO:DEMO:SEQTK_TRIM
     tasks: 3
     failed: 3
     memory: max peak_rss - / requested 4.0 GB
     time: max realtime - / requested 1m00s
+  - process: NFCORE_DEMO:DEMO:FASTQC
+    tasks: 3
+    memory: max peak_rss 457 MB / requested 4.0 GB (11%)
+    time: max realtime 5.0s / requested 10m00s (<1%)
+  - process: NFCORE_DEMO:DEMO:COWPY
+    tasks: 1
+    memory: max peak_rss 3.4 MB / requested 4.0 GB (<1%)
+    time: max realtime 239ms / requested 10m00s (<1%)
 notes:
   - failed_without_exit_status: for these tasks `realtime` ends when Nextflow stopped waiting for the missing .exitcode (executor.exitReadTimeout), not when the job stopped, so it is not compared with the requested time. failed_tasks shows what the scheduler wrote in .command.log; the scheduler's accounting has the real elapsed time
 ```
 
-## Known open defect
+## A defect found on a large run
 
-On a pipeline with many processes (`nf-core/rnaseq`: 234 tasks),
-`task_resources` reaches its output limit while listing processes in
-execution order, so the processes that used the most memory can be the ones
-cut off. The output says it was truncated, but suggests lowering
-`max_tasks`, which does not shorten that list.
+6. **Per-process summary cut off.** On a pipeline with many processes
+   (`nf-core/rnaseq`: 234 tasks, 65 processes), `task_resources` reached its
+   output limit while listing processes in execution order, so the processes
+   that used the most memory could be the ones cut off, and the hint it gave
+   (lower `max_tasks`) did not shorten that list. The summary now puts
+   processes with failed tasks first, then those that used the largest
+   share of their request, and `max_tasks` limits it.
 
 ## What has not been evaluated
 

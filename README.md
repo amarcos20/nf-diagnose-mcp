@@ -175,7 +175,7 @@ Requested against used memory and time.
 | `run` | required | The run, as shown by `list_runs` |
 | `run_name` | latest run there | Nextflow run name |
 | `threshold` | 0.8 | Flag tasks at or above this fraction of their request (0.1–1.0) |
-| `max_tasks` | 15 | Rows per list (1–50) |
+| `max_tasks` | 15 | Rows per list, and processes in the summary (1–50) |
 
 Lists the tasks killed by a signal, the tasks near their memory or time
 request, and a per-process summary (largest `peak_rss` and `realtime`

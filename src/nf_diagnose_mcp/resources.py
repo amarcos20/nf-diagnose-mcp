@@ -76,5 +76,9 @@ def analyse(tasks: list[Task], threshold: float) -> dict:
         longest = max(real) if real else None
         line["time"] = f"max realtime {fmt_ms(longest)} / requested {fmt_ms(time_req)}" + (
             f" ({pct(longest / time_req)})" if longest is not None and time_req else "")
-        summary.append(line)
+        # processes with failures first, then the ones closest to (or over) what they
+        # requested; without a request, the largest memory use
+        fractions = [x for x in (ratio(peak, mem_req), ratio(longest, time_req)) if x is not None]
+        summary.append(((failed > 0, max(fractions, default=-1.0), peak or 0), line))
+    summary = [line for _, line in sorted(summary, key=lambda pair: pair[0], reverse=True)]
     return {"killed": killed, "near": near, "no_exit": no_exit, "by_process": summary}
