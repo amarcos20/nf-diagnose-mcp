@@ -115,3 +115,29 @@ def test_all_outputs_within_limits(sb):
         assert len(tools.failed_tasks(sb, name, tail_lines=200, max_tasks=20)) <= MAX_CHARS["failed_tasks"]
         assert len(tools.task_resources(sb, name, max_tasks=50)) <= MAX_CHARS["task_resources"]
     assert len(tools.list_runs(sb, limit=100)) <= MAX_CHARS["list_runs"]
+
+
+def test_bad_samplesheet_shows_the_header_of_the_validated_file(sb):
+    out = tools.failed_tasks(sb, "demo-bad-samplesheet")
+    assert "validated_files:" in out and "param: --input" in out
+    assert "file: demo-bad-samplesheet/samplesheet.csv" in out
+    # the true cause: the column is called fastq1, not fastq_1
+    assert "sample,fastq1,fastq_2" in out
+    assert "first_lines (5, whole file)" in out
+    assert len(out) <= MAX_CHARS["failed_tasks"]
+
+
+def test_validated_file_is_bounded_and_sandboxed(copy_fixture, tmp_path_factory):
+    sandbox, run = copy_fixture("demo-bad-samplesheet")
+    (run / "samplesheet.csv").write_text("sample,fastq1," + "x" * 5000 + "\n" + "row\n" * 5000)
+    out = tools.failed_tasks(sandbox, str(run))
+    assert "file continues" in out and "chars]" in out
+    assert out.count("row") <= 5 and len(out) <= MAX_CHARS["failed_tasks"]
+
+    # a samplesheet outside the allowed roots is never read, whatever the log says
+    outside = tmp_path_factory.mktemp("outside") / "samplesheet.csv"
+    outside.write_text("secret,header\n")
+    (run / "samplesheet.csv").unlink()
+    (run / "samplesheet.csv").symlink_to(outside)
+    out = tools.failed_tasks(sandbox, str(run))
+    assert "secret" not in out and "not read (remote, not on disk, or outside the allowed roots)" in out

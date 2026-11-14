@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from pathlib import Path
 
 from . import exit_codes, resources
-from .runs import Run, discover, effective_status, resolve_run, task_counts_from_trace
-from .sandbox import Sandbox
+from .runs import (Run, discover, effective_status, option_from_command, resolve_run,
+                   task_counts_from_trace)
+from .sandbox import Sandbox, SandboxError
 from .tasks import Task, _tail, collect_evidence, load_tasks, locate_workdir
 from .textutil import MAX_CHARS, cap, clip_line, clip_lines, fmt_bytes, fmt_ms, render
 
@@ -78,6 +80,60 @@ def list_runs(sandbox: Sandbox, root: str | None = None, limit: int = 20) -> str
 
 # -- failed_tasks ------------------------------------------------------------
 
+_VALIDATION_FAILED = re.compile(r"\* --([\w.-]+) \((.+?)\): Validation of file failed")
+VALIDATED_HEAD_BYTES = 4096
+VALIDATED_HEAD_LINES = 5
+MAX_VALIDATED_FILES = 3
+
+
+def _validated_files(sandbox: Sandbox, run: Run, log) -> list[dict]:
+    """The start of each file whose validation aborted the run (e.g. the samplesheet).
+
+    The validation error names the fields it expected; the header of the file
+    shows what was actually there. The path comes from the log, so it goes
+    through the sandbox like any user-supplied path.
+    """
+    found: dict[tuple[str, str], None] = {}
+    for line in log.abort_cause:
+        m = _VALIDATION_FAILED.search(line)
+        if m:
+            found.setdefault((m.group(1), m.group(2)), None)
+    out = []
+    for param, shown in list(found)[:MAX_VALIDATED_FILES]:
+        option = f"--{param}"
+        base = shown.rsplit("/", 1)[-1]
+        candidates = [option_from_command(run.command or log.command, option), shown]
+        candidates += [p for p in log.validated_files if p.rsplit("/", 1)[-1] == base]
+        entry: dict = {"param": option}
+        for cand in dict.fromkeys(c for c in candidates if c):
+            if "://" in cand:
+                continue
+            path = Path(cand)
+            if not path.is_absolute():
+                if run.launch_dir is None:
+                    continue
+                path = run.launch_dir / path
+            if not sandbox.is_file(path):
+                continue
+            try:
+                text, cut = sandbox.read_text(path, VALIDATED_HEAD_BYTES)
+            except SandboxError:
+                continue
+            lines = text.splitlines()
+            if cut and len(lines) > 1:
+                lines = lines[:-1]      # the last line is probably cut in the middle
+            more = cut or len(lines) > VALIDATED_HEAD_LINES
+            lines = [clip_line(l, 200) for l in lines[:VALIDATED_HEAD_LINES]]
+            entry["file"] = sandbox.display(sandbox.resolve(path))
+            label = f"first_lines ({len(lines)}{', file continues' if more else ', whole file'})"
+            entry[label] = "\n".join(lines) if lines else "(empty file)"
+            break
+        else:
+            entry["file"] = f"{clip_line(shown, 200)}: not read (remote, not on disk, or outside the allowed roots)"
+        out.append(entry)
+    return out
+
+
 def _signature(sandbox: Sandbox, run: Run, task: Task) -> str | None:
     """Normalised end of .command.err, to tell 'same error' from 'different error'."""
     workdir = locate_workdir(sandbox, run, task)
@@ -138,6 +194,9 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
             lines = log.abort_cause if not failed else log.abort_cause[:3]
             out["run_aborted_because"] = "\n".join(clip_lines(lines, head=30, tail=5))
         if not failed:
+            validated = _validated_files(sandbox, r, log)
+            if validated:
+                out["validated_files"] = validated
             errs = []
             for rec in log.errors[:5]:
                 body = [l for l in rec.lines if l.strip()]

@@ -63,6 +63,7 @@ class LogInfo:
     dropped_records: int = 0
     tasks: dict[str, dict[str, str]] = field(default_factory=dict)
     hash_by_name: dict[str, list[str]] = field(default_factory=dict)
+    validated_files: list[str] = field(default_factory=list)   # nf-schema "Started validating <path>"
     stats: dict[str, int] = field(default_factory=dict)
     completed: bool = False
     truncated: bool = False
@@ -132,6 +133,9 @@ def parse_log(sandbox: Sandbox, path, max_bytes: int = MAX_LOG_BYTES) -> LogInfo
         elif msg.startswith("Session aborted -- Cause: "):
             info.abort_cause = [msg.split("Cause: ", 1)[1]]
             in_abort = True
+        elif msg.startswith("Started validating "):
+            if len(info.validated_files) < 20:
+                info.validated_files.append(msg[len("Started validating "):].strip())
         elif "Execution complete -- Goodbye" in msg:
             info.completed = True
         elif "TaskHandler[" in msg and "Task completed" in msg:
