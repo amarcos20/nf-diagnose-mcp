@@ -19,7 +19,9 @@ workstation (local executor, Apptainer) and on one SLURM cluster
 
 - [Install](#install)
 - [Connect it to a client](#connect-it-to-a-client)
+- [How it works](#how-it-works)
 - [Tools](#tools)
+- [Prompt and resources](#prompt-and-resources)
 - [What it reads](#what-it-reads)
 - [Safety model](#safety-model)
 - [Output limits](#output-limits)
@@ -39,7 +41,7 @@ python -m venv .venv
 ```
 
 This installs the `nf-diagnose-mcp` command. Its only dependency is the
-official `mcp` Python SDK.
+official `mcp` Python SDK (1.30 or newer; `pydantic` and `anyio` come with it).
 
 ## Connect it to a client
 
@@ -50,9 +52,17 @@ arguments:
 nf-diagnose-mcp /path/to/runs /another/root
 ```
 
-If no directory is given it uses `$NF_DIAGNOSE_ROOTS` (separated by `:`), and
-if that is unset, the current directory. Relative paths passed to the tools
-are resolved against the first root.
+The allowed directories are taken from, in this order:
+
+1. the arguments;
+2. `$NF_DIAGNOSE_ROOTS` (separated by `:`);
+3. the client's [roots](https://modelcontextprotocol.io/specification/2025-06-18/client/roots),
+   asked on every call, so a client that changes them is followed. Only local
+   `file://` roots are used; if the client offers none, the call fails rather
+   than reading anything else;
+4. the current directory, if the client does not support roots.
+
+Relative paths passed to the tools are resolved against the first root.
 
 **Claude Code.** Put this in `.mcp.json` at the root of the project that holds
 your runs (the file in this repository does the same for the fixtures):
@@ -78,9 +88,94 @@ with your assistant. To keep one, ask the assistant to save it ("write this
 diagnosis to `diagnosis.md`"): it will use its own file tools, in a location
 you choose.
 
+## How it works
+
+The assistant calls one of four tools over stdio. Each tool reads the run's
+files through the sandbox and returns bounded text plus a small structured
+summary; nothing flows back to the disk. The server also offers one prompt
+and the exit-code explanations as resources.
+
+```mermaid
+flowchart LR
+    client["MCP client<br/>(Claude Code, …)"]
+
+    subgraph server["nf-diagnose-mcp (stdio)"]
+        direction TB
+        lr["list_runs"]
+        ft["failed_tasks"]
+        ee["explain_exit_code"]
+        tr["task_resources"]
+        pr["prompt: diagnose_run"]
+        rs["resources:<br/>nf-diagnose://exit-codes/…"]
+        sb{{"Sandbox<br/>allowed roots only,<br/>read-only"}}
+    end
+
+    subgraph disk["Run files on disk"]
+        direction TB
+        hist[".nextflow/history"]
+        log[".nextflow.log*"]
+        pi["pipeline_info/<br/>report + trace"]
+        work["work/xx/yyyy…/<br/>.command.*  .exitcode"]
+        sheet["samplesheet<br/>(named in a validation error)"]
+    end
+
+    kb[("Built-in exit-code<br/>knowledge + sources")]
+
+    client -- "tool call, prompt,<br/>resource read" --> server
+    server -- "text + structuredContent,<br/>or isError" --> client
+    server -. "roots/list (only if no<br/>roots on the command line)" .-> client
+    lr & ft & tr --> sb
+    ee & rs --> kb
+    ft -. "exit meaning" .-> kb
+    sb --> hist & log & pi & work & sheet
+```
+
+The intended diagnosis flow:
+
+```mermaid
+flowchart LR
+    A["list_runs<br/>which run?"] --> B["failed_tasks<br/>what failed, with evidence"]
+    B --> C["explain_exit_code<br/>what the status means"]
+    B --> D["task_resources<br/>memory / time suspected?"]
+    C -.-> D
+```
+
+Inside the package, every module that needs a file goes through
+`sandbox.py`:
+
+```mermaid
+flowchart TD
+    server["server.py<br/>MCP wiring, roots, prompt,<br/>resources, CLI"] --> tools["tools.py<br/>the four tools"]
+    server --> schema["schema.py<br/>output schemas"]
+    server --> sandbox
+
+    tools --> runs["runs.py<br/>find runs, match trace/report"]
+    tools --> tasks["tasks.py<br/>task tables, work-dir evidence"]
+    tools --> resources["resources.py<br/>requested vs used"]
+    tools --> exit["exit_codes.py<br/>meanings + sources"]
+    tools --> textutil["textutil.py<br/>clip, render, limits"]
+
+    runs --> nflog["nflog.py<br/>.nextflow.log parser"]
+    tasks --> runs
+    resources --> tasks
+    resources --> exit
+
+    runs & tasks & nflog & tools --> sandbox{{"sandbox.py<br/>only filesystem access"}}
+    sandbox --> fs[("allowed roots")]
+```
+
 ## Tools
 
-All four tools are read-only and return plain, YAML-like text. The intended
+All four tools are read-only and return plain, YAML-like text for the
+assistant. Each also returns `structuredContent`, a small summary that
+matches the tool's `outputSchema` (see
+[schema.py](src/nf_diagnose_mcp/schema.py)): the run, its status, the
+failed groups or counts, and `truncated` when the text was cut. The summary
+never carries file content. The text is the evidence, not a JSON copy of the
+summary. A tool that cannot run (a path outside the roots, an exit code
+outside 0–255) returns a one-line error with `isError: true`.
+
+The intended
 order is `list_runs` → `failed_tasks` → `explain_exit_code` →
 `task_resources`.
 
@@ -183,6 +278,16 @@ against the request). Killed tasks have no usage metrics, because Nextflow
 could not collect them; the tool says so and points to the successful tasks
 of the same process for comparison.
 
+## Prompt and resources
+
+| Kind | Name | What it gives |
+|---|---|---|
+| Prompt | `diagnose_run` (argument `run`, optional) | The diagnosis steps above as a ready-made request, with how to report the cause and its evidence |
+| Resource | `nf-diagnose://exit-codes` | One line per common exit status |
+| Resource template | `nf-diagnose://exit-codes/{executor}/{code}` | The same explanation as `explain_exit_code`, e.g. `nf-diagnose://exit-codes/slurm/137` |
+
+In Claude Code the prompt appears as `/mcp__nf-diagnose__diagnose_run`.
+
 ## What it reads
 
 | File | Used for |
@@ -208,7 +313,8 @@ from a cluster, by their hash under `work/`.
   following symlinks and `..`, and refuses anything outside the allowed
   roots. This includes paths the tool finds inside logs, such as a
   samplesheet or a recorded work directory.
-- **No tracebacks.** Errors are returned as a one-line `error: …` message.
+- **No tracebacks.** Errors are returned as a one-line message with
+  `isError: true`.
 
 The files of a run can contain anything a pipeline printed. The server passes
 that text on, clipped, as evidence; treat it as data.
@@ -263,7 +369,8 @@ The code is in [src/nf_diagnose_mcp/](src/nf_diagnose_mcp/):
 
 | Module | Role |
 |---|---|
-| `server.py` | MCP wiring and the command-line entry point |
+| `server.py` | MCP wiring: tools, roots, prompt, resources, the command-line entry point |
+| `schema.py` | Output schemas of the tools' structured content |
 | `tools.py` | The four tools as plain functions returning bounded text |
 | `runs.py` | Finding runs and matching trace/report files to them |
 | `nflog.py` | Parser for `.nextflow.log` |

@@ -1,24 +1,52 @@
-"""The four v0.1 tools as plain functions returning size-bounded text.
+"""The four tools as plain functions returning size-bounded text.
 
 Kept separate from the MCP wiring so they can be tested without a client.
+Each tool has a ``*_report`` function returning a :class:`Report`: the text
+the assistant reads, plus a small structured summary for programs (the MCP
+``structuredContent``). The plain functions return the text only.
 """
 from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import exit_codes, resources
 from .runs import (Run, discover, effective_status, option_from_command, resolve_run,
                    task_counts_from_trace)
 from .sandbox import Sandbox, SandboxError
-from .tasks import (Task, _tail, collect_evidence, input_problem_hint, load_tasks, locate_workdir,
+from .tasks import (Task, collect_evidence, input_problem_hint, load_tasks, locate_workdir, tail_file,
                     staged_sources)
 from .textutil import MAX_CHARS, cap, clip_line, clip_lines, fmt_bytes, fmt_ms, render
 
 MAX_COMPARE_PER_GROUP = 50
 MAX_SHARED_SCAN = 200       # completed tasks whose .command.run is read to find shared inputs
 MAX_SHARED_SHOWN = 10
+MAX_SUMMARY_GROUPS = 50
+
+
+class InvalidArgument(ValueError):
+    """A tool argument that cannot be used (e.g. an exit code outside 0-255)."""
+
+
+@dataclass
+class Report:
+    text: str        # bounded, for the assistant
+    summary: dict    # small and bounded, matches the schemas in schema.py
+
+
+def _report(out: dict, tool: str, summary: dict, hint: str = "") -> Report:
+    text = render(out)
+    summary["truncated"] = len(text) > MAX_CHARS[tool]
+    return Report(cap(text, MAX_CHARS[tool], hint), summary)
+
+
+_RUN_FIELDS = ("run", "name", "status", "started", "duration", "pipeline", "version", "nextflow", "tasks")
+
+
+def _run_summary(row: dict) -> dict:
+    return {k: (None if row.get(k) is None else str(row[k])) for k in _RUN_FIELDS}
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -55,14 +83,19 @@ def _counts_text(counts: Counter) -> str | None:
 # -- list_runs ---------------------------------------------------------------
 
 def list_runs(sandbox: Sandbox, root: str | None = None, limit: int = 20) -> str:
+    return list_runs_report(sandbox, root, limit).text
+
+
+def list_runs_report(sandbox: Sandbox, root: str | None = None, limit: int = 20) -> Report:
     limit = _clamp(limit, 1, 100)
     base = sandbox.resolve(root) if root else sandbox.roots[0]
     runs, hit_limit = discover(sandbox, base)
     out: dict = {"root": sandbox.display(base), "runs_found": len(runs)}
+    summary: dict = {"root": out["root"], "runs_found": len(runs), "runs": []}
     if not runs:
         out["note"] = ("no .nextflow/history, .nextflow.log* or pipeline_info/ found within 4 directory levels. "
                        "Pass the launch directory (where `nextflow run` was started) or the --outdir.")
-        return cap(render(out), MAX_CHARS["list_runs"])
+        return _report(out, "list_runs", summary)
     shown = runs[-limit:]
     if len(runs) > len(shown):
         out["showing"] = f"latest {len(shown)} (raise `limit`, max 100, or pass a narrower root)"
@@ -78,7 +111,8 @@ def list_runs(sandbox: Sandbox, root: str | None = None, limit: int = 20) -> str
             row["note"] = "no pipeline_info trace/report matched this run"
         rows.append(row)
     out["runs"] = rows
-    return cap(render(out), MAX_CHARS["list_runs"], "use a smaller `limit`")
+    summary["runs"] = [_run_summary(row) for row in rows]
+    return _report(out, "list_runs", summary, "use a smaller `limit`")
 
 
 # -- failed_tasks ------------------------------------------------------------
@@ -146,7 +180,7 @@ def _signature(sandbox: Sandbox, run: Run, task: Task) -> tuple[str, str] | None
     if workdir is None:
         return None
     for name, label in ((".command.err", "stderr"), (".command.log", ".command.log")):
-        tail = _tail(sandbox, workdir / name, 15)
+        tail = tail_file(sandbox, workdir / name, 15)
         if tail is not None:
             break
     else:
@@ -197,7 +231,7 @@ def _same_inputs(sandbox: Sandbox, run: Run, failed: Task, tasks: list[Task], ta
         return None
     lines: list[str] = []
     for name in (".command.err", ".command.log"):
-        tail = _tail(sandbox, workdir / name, tail_lines)
+        tail = tail_file(sandbox, workdir / name, tail_lines)
         if tail is not None:
             lines += tail[0]
     hint = input_problem_hint(lines)
@@ -263,6 +297,11 @@ def _task_detail(sandbox: Sandbox, run: Run, t: Task, tail_lines: int, scheduler
 
 def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
                  tail_lines: int = 40, max_tasks: int = 5) -> str:
+    return failed_tasks_report(sandbox, run, run_name, tail_lines, max_tasks).text
+
+
+def failed_tasks_report(sandbox: Sandbox, run: str, run_name: str | None = None,
+                        tail_lines: int = 40, max_tasks: int = 5) -> Report:
     tail_lines = _clamp(tail_lines, 5, 200)
     max_tasks = _clamp(max_tasks, 1, 20)
     r = resolve_run(sandbox, run, run_name)
@@ -301,11 +340,13 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
         notes.append("no .nextflow.log found for this run: errors that happen before any task starts "
                      "(parameter/samplesheet validation, config errors) are only recorded there")
 
+    summary: dict = {"run": _run_summary(out), "failed_tasks": len(failed), "failed_groups": [],
+                     "run_aborted": bool(log is not None and log.abort_cause)}
     if not failed:
         out["failed_tasks"] = "none"
         if notes:
             out["notes"] = notes
-        return cap(render(out), MAX_CHARS["failed_tasks"])
+        return _report(out, "failed_tasks", summary)
 
     # group attempts that failed the same way so 300 identical failures cost one block
     groups: dict[tuple, list[Task]] = {}
@@ -374,19 +415,34 @@ def failed_tasks(sandbox: Sandbox, run: str, run_name: str | None = None,
         notes.append(f"details limited to max_tasks={max_tasks}; raise it (max 20) to see more")
     if notes:
         out["notes"] = notes
-    return cap(render(out), MAX_CHARS["failed_tasks"], "lower tail_lines or max_tasks")
+    summary["failed_groups"] = [{"process": b["process"], "exit": str(b["exit"]),
+                                 "failed_attempts": b["failed_attempts"]} for b in blocks[:MAX_SUMMARY_GROUPS]]
+    return _report(out, "failed_tasks", summary, "lower tail_lines or max_tasks")
 
 
 # -- explain_exit_code -------------------------------------------------------
 
 def explain_exit_code(code: int | str | None, executor: str = "local") -> str:
-    return cap(render(exit_codes.explain(code, executor)), MAX_CHARS["explain_exit_code"])
+    return explain_exit_code_report(code, executor).text
+
+
+def explain_exit_code_report(code: int | str | None, executor: str = "local") -> Report:
+    out = exit_codes.explain(code, executor)
+    if "error" in out:
+        raise InvalidArgument(out["error"])
+    summary = {"exit_code": str(out["exit_code"]), "signal": out.get("signal"), "meaning": out["meaning"]}
+    return _report(out, "explain_exit_code", summary)
 
 
 # -- task_resources ----------------------------------------------------------
 
 def task_resources(sandbox: Sandbox, run: str, run_name: str | None = None,
                    threshold: float = 0.8, max_tasks: int = 15) -> str:
+    return task_resources_report(sandbox, run, run_name, threshold, max_tasks).text
+
+
+def task_resources_report(sandbox: Sandbox, run: str, run_name: str | None = None,
+                          threshold: float = 0.8, max_tasks: int = 15) -> Report:
     threshold = max(0.1, min(1.0, float(threshold)))
     max_tasks = _clamp(max_tasks, 1, 50)
     r = resolve_run(sandbox, run, run_name)
@@ -396,7 +452,8 @@ def task_resources(sandbox: Sandbox, run: str, run_name: str | None = None,
         out["tasks"] = "0 (no task was run, or no trace/report/log found for this run)"
         if notes:
             out["notes"] = notes
-        return cap(render(out), MAX_CHARS["task_resources"])
+        return _report(out, "task_resources", {"run": _run_summary(out), "killed_by_signal": 0,
+                                               "near_limit": 0, "threshold": threshold})
     result = resources.analyse(tasks, threshold)
     out["tasks"] = _counts_text(Counter(t.status or "?" for t in tasks))
     if not any(t.memory or t.time for t in tasks):
@@ -430,4 +487,6 @@ def task_resources(sandbox: Sandbox, run: str, run_name: str | None = None,
                      "and the task's .command.log / scheduler accounting")
     if notes:
         out["notes"] = notes
-    return cap(render(out), MAX_CHARS["task_resources"], "lower max_tasks")
+    summary = {"run": _run_summary(out), "killed_by_signal": len(result["killed"]),
+               "near_limit": len(result["near"]), "threshold": threshold}
+    return _report(out, "task_resources", summary, "lower max_tasks")

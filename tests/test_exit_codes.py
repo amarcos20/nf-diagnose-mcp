@@ -69,8 +69,10 @@ def test_no_exit_status():
 
 
 def test_invalid_input():
-    assert "error:" in tools.explain_exit_code("abc")
-    assert "outside 0-255" in tools.explain_exit_code("300")
+    with pytest.raises(tools.InvalidArgument, match="not an exit code"):
+        tools.explain_exit_code("abc")
+    with pytest.raises(tools.InvalidArgument, match="outside 0-255"):
+        tools.explain_exit_code("300")
 
 
 def test_short_meaning_is_one_line():
@@ -83,7 +85,7 @@ def test_no_output_names_this_repositorys_fixtures(fixtures):
     models that are evaluated on them: naming one would give the answer away."""
     names = sorted(p.name for p in fixtures.iterdir() if p.is_dir())
     assert len(names) >= 5
-    codes = [str(c) for c in range(0, 256)] + ["-", "", "abc", "300"]
+    codes = [str(c) for c in range(0, 256)] + ["-", ""]
     for executor in ("local", "slurm"):
         for code in codes:
             out = tools.explain_exit_code(code, executor).lower()

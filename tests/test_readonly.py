@@ -9,7 +9,7 @@ FORBIDDEN = [
     r"\bsubprocess\b", r"\bos\.system\b", r"\bos\.popen\b", r"\bos\.exec", r"\bos\.spawn", r"\bpty\b",
     r"\bshutil\b", r"\bos\.remove\b", r"\bos\.unlink\b", r"\.unlink\(", r"\bos\.rmdir\b", r"\bos\.rename\b",
     r"\bos\.replace\b", r"\.write_text\(", r"\.write_bytes\(", r"\.mkdir\(", r"\bos\.makedirs\b", r"\.touch\(",
-    r"\btempfile\b", r"\bsocket\b", r"\burllib\b", r"\brequests\b", r"\bhttpx\b", r"\beval\(", r"\bexec\(",
+    r"\btempfile\b", r"\bsocket\b", r"\burllib\b(?!\.parse\b)", r"\brequests\b", r"\bhttpx\b", r"\beval\(", r"\bexec\(",
     r"\bpickle\b", r"\bos\.chmod\b", r"\.chmod\(", r"\bos\.symlink\b",
 ]
 

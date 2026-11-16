@@ -269,7 +269,7 @@ def locate_workdir(sandbox: Sandbox, run: Run, task: Task) -> Path | None:
     return None
 
 
-def _tail(sandbox: Sandbox, path: Path, n: int) -> tuple[list[str], int, bool] | None:
+def tail_file(sandbox: Sandbox, path: Path, n: int) -> tuple[list[str], int, bool] | None:
     """(last n lines, total lines seen, file_was_larger_than_read_window)."""
     if not sandbox.is_file(path):
         return None
@@ -436,7 +436,7 @@ def collect_evidence(sandbox: Sandbox, run: Run, task: Task, tail_lines: int) ->
     clean_env = facts.pop("_clean_env", None)
     ev.update(facts)
 
-    err = _tail(sandbox, workdir / ".command.err", tail_lines)
+    err = tail_file(sandbox, workdir / ".command.err", tail_lines)
     err_lines: list[str] = []
     if err is not None:
         err_lines, total, windowed = err
@@ -456,7 +456,7 @@ def collect_evidence(sandbox: Sandbox, run: Run, task: Task, tail_lines: int) ->
     # .command.log = stdout+stderr as captured by the wrapper, plus anything the
     # scheduler appended (e.g. slurmstepd messages). Show only what .command.err
     # did not already show.
-    log = _tail(sandbox, workdir / ".command.log", tail_lines)
+    log = tail_file(sandbox, workdir / ".command.log", tail_lines)
     log_lines: list[str] = []
     if log is not None:
         log_lines, total, windowed = log
